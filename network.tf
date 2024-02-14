@@ -1,5 +1,5 @@
 provider "google" {
-  credentials = file("cloud-nw-dev-creds.json")
+  credentials = file("cloud-nw-dev.tfvars.json")
   project     = var.project_id
   region      = var.region
 }
@@ -16,21 +16,21 @@ variable "project_id" {}
 variable "region" {}
 
 resource "google_compute_network" "my_vpc" {
-  name                  = "my-vpc"
+  name                  = var.vpc_name
   auto_create_subnetworks = false
   routing_mode          = "REGIONAL"
 }
 
 
 resource "google_compute_subnetwork" "webapp_subnet" {
-  name          = "webapp-subnet"
+  name          = "webapp"
   region        = var.region
   network       = google_compute_network.my_vpc.self_link
   ip_cidr_range = var.webapp_subnet_cidr
 }
 
 resource "google_compute_subnetwork" "db_subnet" {
-  name          = "db-subnet"
+  name          = "db"
   region        = var.region
   network       = google_compute_network.my_vpc.self_link
   ip_cidr_range = var.db_subnet_cidr
