@@ -28,12 +28,12 @@ variable "project_id" {}
 variable "region" {}
 variable "webapp_subnet" {}
 variable "db_subnet" {}
-variable "webapp-to-internet" {}
+variable "route_name" {}
 
 resource "google_compute_network" "my_vpc" {
-  name                  = var.vpc_name
-  auto_create_subnetworks = false
-  routing_mode          = "REGIONAL"
+  name                            = var.vpc_name
+  auto_create_subnetworks         = false
+  routing_mode                    = "REGIONAL"
   delete_default_routes_on_create = true
 }
 
