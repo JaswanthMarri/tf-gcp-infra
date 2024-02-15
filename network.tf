@@ -39,6 +39,7 @@ resource "google_compute_network" "my_vpc" {
 
 resource "google_compute_subnetwork" "webapp_subnet" {
   name          = var.webapp_subnet
+
   region        = var.region
   network       = google_compute_network.my_vpc.self_link
   ip_cidr_range = var.webapp_subnet_cidr
@@ -46,6 +47,7 @@ resource "google_compute_subnetwork" "webapp_subnet" {
 
 resource "google_compute_subnetwork" "db_subnet" {
   name          = var.db_subnet
+
   region        = var.region
   network       = google_compute_network.my_vpc.self_link
   ip_cidr_range = var.db_subnet_cidr
@@ -58,5 +60,6 @@ resource "google_compute_route" "webapp_route" {
   network          = google_compute_network.my_vpc.self_link
   dest_range       = "0.0.0.0/0"
   next_hop_gateway = "global/gateways/default-internet-gateway"
+
   priority         = 1000
 }
