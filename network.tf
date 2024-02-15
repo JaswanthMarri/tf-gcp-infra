@@ -1,8 +1,10 @@
 provider "google" {
-  credentials = file("cloud-nw-dev.tfvars.json")
+  credentials = file(var.creds)
   project     = var.project_id
   region      = var.region
 }
+
+variable "creds" {}
 
 variable "vpc_name" {
   default = "my-vpc"
