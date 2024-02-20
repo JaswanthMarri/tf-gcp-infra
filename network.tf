@@ -4,7 +4,7 @@ provider "google" {
   region      = var.region
 }
 
-variable "creds" {}}
+variable "creds" {}
 
 
 variable "vpc_name" {
