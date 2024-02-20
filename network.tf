@@ -6,6 +6,7 @@ provider "google" {
 
 variable "creds" {}}
 
+
 variable "vpc_name" {
   default = "my-vpc"
 }
