@@ -75,7 +75,7 @@ resource "google_compute_route" "webapp_route" {
   name             = var.route_name
   network          = google_compute_network.my_vpc.self_link
   dest_range       = "0.0.0.0/0"
-  next_hop_instance = google_compute_instance.vpc-instance-cloud.self_link
+  next_hop_gateway = "global/gateways/default-internet-gateway"
   priority         = 1000
 }
 
