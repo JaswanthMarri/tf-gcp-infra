@@ -6,7 +6,6 @@ provider "google" {
 
 variable "creds" {}
 
-
 variable "vpc_name" {
   default = "my-vpc"
 }
@@ -44,7 +43,10 @@ variable "boot_disk_size" {}
 variable "machine_type" {}
 variable "nw_tier" {}
 variable "prov_model" {}
-
+variable "boot_disk_mode" {}
+variable "on_host_maintenance" {}
+variable "ssh_port" {}
+variable "firewall_rule_deny_name" {}
 
 resource "google_compute_network" "my_vpc" {
   name                            = var.vpc_name
@@ -89,11 +91,21 @@ resource "google_compute_firewall" "app_firewall" {
     ports    = [var.ports]  # Assuming app_port is a variable defining the application port
   }
   
-  allow {
-    protocol = "icmp"
-  }
+  source_ranges = ["0.0.0.0/0"]  # Allow traffic from the internet
+  
+}
+
+resource "google_compute_firewall" "app_firewall_deny_ssh" {
+  name    = var.firewall_rule_deny_name
+  network = google_compute_network.my_vpc.self_link
 
   source_ranges = ["0.0.0.0/0"]  # Allow traffic from the internet
+  
+    # Exclude SSH (port 22) from allowed ports
+  deny {
+    protocol = "tcp"
+    ports    = [var.ssh_port]
+  }
 }
 
 
@@ -108,16 +120,13 @@ resource "google_compute_instance" "vpc-instance-cloud" {
       type  = var.boot_disk_type
     }
 
-    mode = "READ_WRITE"
+    mode = var.boot_disk_mode
   }
 
   can_ip_forward      = true
   deletion_protection = false
   enable_display      = false
 
-  labels = {
-    goog-ec-src = "vm_add-tf"
-  }
 
   machine_type = var.machine_type
   name         = var.vpc_instance_name
@@ -134,15 +143,10 @@ resource "google_compute_instance" "vpc-instance-cloud" {
 
   scheduling {
     automatic_restart   = true
-    on_host_maintenance = "MIGRATE"
+    on_host_maintenance = var.on_host_maintenance
     preemptible         = false
     provisioning_model  = var.prov_model
   }
-
- # service_account {
-  #  email  = "1027887585503-compute@developer.gserviceaccount.com"
-  #  scopes = ["https://www.googleapis.com/auth/devstorage.read_only", "https://www.googleapis.com/auth/logging.write", "https://www.googleapis.com/auth/monitoring.write", "https://www.googleapis.com/auth/service.management.readonly", "https://www.googleapis.com/auth/servicecontrol", "https://www.googleapis.com/auth/trace.append"]
-  #}
 
   shielded_instance_config {
     enable_integrity_monitoring = true
