@@ -63,14 +63,14 @@ resource "google_compute_subnetwork" "webapp_subnet" {
   ip_cidr_range = var.webapp_subnet_cidr
 }
 
-resource "google_compute_subnetwork" "db_subnet" {
-  name          = var.db_subnet
-  region        = var.region
-  network       = google_compute_network.my_vpc.self_link
-  ip_cidr_range = var.db_subnet_cidr
-  private_ip_google_access = true
+#resource "google_compute_subnetwork" "db_subnet" {
+#  name          = var.db_subnet
+#  region        = var.region
+#  network       = google_compute_network.my_vpc.self_link
+#  ip_cidr_range = var.db_subnet_cidr
+#  private_ip_google_access = true
 
-}
+#}
 
 
 # Route for webapp subnet to access internet
@@ -161,15 +161,14 @@ resource "google_compute_instance" "vpc-instance-cloud" {
 
 
 # [START compute_internal_ip_private_access]
-resource "google_compute_global_address" "db-ip" {
-  name         = "db-ip"
-  address_type = "INTERNAL"
-  purpose      = "VPC_PEERING"
-  network      = google_compute_network.my_vpc.id
-  #address		= "10.3.0.5"
-  prefix_length = 24
-  
-}
+#resource "google_compute_global_address" "db-ip" {
+#  name         = "db-ip"
+#  address_type = "INTERNAL"
+#  purpose      = "PRIVATE_SERVICE_CONNECT"
+#  network      = google_compute_network.my_vpc.id
+#  address		= "10.3.0.5"
+  #prefix_length = 24 
+#}
 # [END compute_internal_ip_private_access]
 
 # [START compute_forwarding_rule_private_access]
@@ -182,12 +181,20 @@ resource "google_compute_global_address" "db-ip" {
 #}
 # [END compute_forwarding_rule_private_access]
 
+resource "google_compute_global_address" "private_ip_alloc" {
+  name          = "private-ip-alloc"
+  purpose       = "VPC_PEERING"
+  address_type  = "INTERNAL"
+  prefix_length = 24
+  network       = google_compute_network.my_vpc.id
+  address		= "10.0.4.0"
+}
 
-
-resource "google_service_networking_connection" "default11" {
+resource "google_service_networking_connection" "default2" {
   network                 = google_compute_network.my_vpc.id
   service                 = "servicenetworking.googleapis.com"
-  reserved_peering_ranges = [google_compute_global_address.db-ip.name]
+  reserved_peering_ranges = [google_compute_global_address.private_ip_alloc.name] 
+  #reserved_peering_ranges = ["10.0.5.0/24"]
 }
 
 # CloudSQL instance
@@ -196,7 +203,7 @@ resource "google_sql_database_instance" "cloudsql_instance" {
   region           = var.region
   database_version = "POSTGRES_9_6"
   deletion_protection = false
-	depends_on = [google_service_networking_connection.default11]
+	depends_on = [google_service_networking_connection.default2]
   settings {
 	backup_configuration{
 		enabled = true
@@ -205,6 +212,7 @@ resource "google_sql_database_instance" "cloudsql_instance" {
 	ip_configuration {
 		ipv4_enabled = false
 		private_network = google_compute_network.my_vpc.id
+		#private_network = google_compute_subnetwork.db_subnet.id
 		enable_private_path_for_google_cloud_services = true
 
     }
@@ -232,5 +240,5 @@ resource "random_password" "db_password" {
 resource "google_sql_user" "cloudsql_user" {
   name     = "user"
   instance = google_sql_database_instance.cloudsql_instance.name
-  password = random_password.db_password.result
+  password = "password"		#random_password.db_password.result
 }
