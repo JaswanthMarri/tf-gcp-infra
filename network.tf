@@ -65,10 +65,11 @@ resource "google_compute_subnetwork" "webapp_subnet" {
 
 resource "google_compute_subnetwork" "db_subnet" {
   name          = var.db_subnet
-
   region        = var.region
   network       = google_compute_network.my_vpc.self_link
   ip_cidr_range = var.db_subnet_cidr
+  private_ip_google_access = true
+
 }
 
 
@@ -156,4 +157,80 @@ resource "google_compute_instance" "vpc-instance-cloud" {
 
   tags = ["http-server", "https-server"]
   zone = var.zone
+}
+
+
+# [START compute_internal_ip_private_access]
+resource "google_compute_global_address" "db-ip" {
+  name         = "db-ip"
+  address_type = "INTERNAL"
+  purpose      = "VPC_PEERING"
+  network      = google_compute_network.my_vpc.id
+  #address		= "10.3.0.5"
+  prefix_length = 24
+  
+}
+# [END compute_internal_ip_private_access]
+
+# [START compute_forwarding_rule_private_access]
+#resource "google_compute_global_forwarding_rule" "default1" {
+#  name                  = "globalrule"
+#  target                =  "all-apis"	  #google_sql_database_instance.cloudsql_instance.self_link
+#  network               = google_compute_network.my_vpc.id
+#  ip_address            = google_compute_global_address.db-ip.id
+#  load_balancing_scheme = ""
+#}
+# [END compute_forwarding_rule_private_access]
+
+
+
+resource "google_service_networking_connection" "default11" {
+  network                 = google_compute_network.my_vpc.id
+  service                 = "servicenetworking.googleapis.com"
+  reserved_peering_ranges = [google_compute_global_address.db-ip.name]
+}
+
+# CloudSQL instance
+resource "google_sql_database_instance" "cloudsql_instance" {
+  name             = "my-cloudsql-instance"
+  region           = var.region
+  database_version = "POSTGRES_9_6"
+  deletion_protection = false
+	depends_on = [google_service_networking_connection.default11]
+  settings {
+	backup_configuration{
+		enabled = true
+		point_in_time_recovery_enabled = true
+	}
+	ip_configuration {
+		ipv4_enabled = false
+		private_network = google_compute_network.my_vpc.id
+		enable_private_path_for_google_cloud_services = true
+
+    }
+	disk_type           = "pd-ssd"
+	disk_size           = 100
+	availability_type = "REGIONAL"
+    tier = "db-f1-micro"  # You can adjust the tier according to your needs
+  }
+  
+}
+
+# CloudSQL database
+resource "google_sql_database" "cloudsql_database" {
+  name     = "webapp"
+  instance = google_sql_database_instance.cloudsql_instance.name
+}
+
+# Random password generation
+resource "random_password" "db_password" {
+  length  = 16
+  special = true
+}
+
+# CloudSQL database user
+resource "google_sql_user" "cloudsql_user" {
+  name     = "user"
+  instance = google_sql_database_instance.cloudsql_instance.name
+  password = random_password.db_password.result
 }
