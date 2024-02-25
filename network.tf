@@ -69,8 +69,8 @@ resource "google_compute_subnetwork" "webapp_subnet" {
 #  network       = google_compute_network.my_vpc.self_link
 #  ip_cidr_range = var.db_subnet_cidr
 #  private_ip_google_access = true
-
 #}
+
 
 
 # Route for webapp subnet to access internet
@@ -191,6 +191,7 @@ EOT
 #  address		= "10.3.0.5"
 #prefix_length = 24 
 #}
+
 # [END compute_internal_ip_private_access]
 
 # [START compute_forwarding_rule_private_access]
@@ -227,16 +228,14 @@ resource "google_sql_database_instance" "cloudsql_instance" {
   deletion_protection = false
   depends_on          = [google_service_networking_connection.default2]
   settings {
-    backup_configuration {
-      enabled                        = true
-      point_in_time_recovery_enabled = true
-    }
-    ip_configuration {
-      ipv4_enabled    = false
-      private_network = google_compute_network.my_vpc.id
-      #private_network = google_compute_subnetwork.db_subnet.id
-      enable_private_path_for_google_cloud_services = true
-
+	backup_configuration{
+		enabled = true
+		point_in_time_recovery_enabled = true
+	}
+	ip_configuration {
+		ipv4_enabled = false
+		private_network = google_compute_network.my_vpc.id
+		enable_private_path_for_google_cloud_services = true
     }
     disk_type         = "pd-ssd"
     disk_size         = 100
