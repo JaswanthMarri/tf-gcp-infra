@@ -110,6 +110,7 @@ resource "google_compute_firewall" "app_firewall_deny_ssh" {
 }
 
 
+
 resource "google_compute_instance" "vpc-instance-cloud" {
   boot_disk {
     auto_delete = true
@@ -259,7 +260,13 @@ resource "random_password" "db_password" {
 
 # CloudSQL database user
 resource "google_sql_user" "cloudsql_user" {
-  name     = "user"
+  name     = random_string.db_user.result
   instance = google_sql_database_instance.cloudsql_instance.name
-  password = "password" #random_password.db_password.result
+  password = random_password.db_password.result
+}
+
+resource "random_string" "db_user" {
+  length           = 16
+  special          = false
+  numeric			= false
 }
