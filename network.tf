@@ -219,6 +219,7 @@ resource "google_service_networking_connection" "default2" {
   network                 = google_compute_network.my_vpc.id
   service                 = "servicenetworking.googleapis.com"
   reserved_peering_ranges = [google_compute_global_address.private_ip_alloc.name]
+  deletion_policy		  = "ABANDON"
   #reserved_peering_ranges = ["10.0.5.0/24"]
 }
 
