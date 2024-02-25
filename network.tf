@@ -56,7 +56,7 @@ resource "google_compute_network" "my_vpc" {
 }
 
 resource "google_compute_subnetwork" "webapp_subnet" {
-  name          = var.webapp_subnet
+  name = var.webapp_subnet
 
   region        = var.region
   network       = google_compute_network.my_vpc.self_link
@@ -89,25 +89,26 @@ resource "google_compute_firewall" "app_firewall" {
 
   allow {
     protocol = "tcp"
-    ports    = [var.ports]  # Assuming app_port is a variable defining the application port
+    ports    = [var.ports] # Assuming app_port is a variable defining the application port
   }
-  
-  source_ranges = ["0.0.0.0/0"]  # Allow traffic from the internet
-  
+
+  source_ranges = ["0.0.0.0/0"] # Allow traffic from the internet
+
 }
 
 resource "google_compute_firewall" "app_firewall_deny_ssh" {
   name    = var.firewall_rule_deny_name
   network = google_compute_network.my_vpc.self_link
 
-  source_ranges = ["0.0.0.0/0"]  # Allow traffic from the internet
-  
-    # Exclude SSH (port 22) from allowed ports
+  source_ranges = ["0.0.0.0/0"] # Allow traffic from the internet
+
+  # Exclude SSH (port 22) from allowed ports
   deny {
     protocol = "tcp"
     ports    = [var.ssh_port]
   }
 }
+
 
 
 resource "google_compute_instance" "vpc-instance-cloud" {
@@ -157,6 +158,28 @@ resource "google_compute_instance" "vpc-instance-cloud" {
 
   tags = ["http-server", "https-server"]
   zone = var.zone
+
+  metadata = {
+    startup-script = <<-EOT
+#!/bin/bash
+set -e
+application_properties="/opt/application.properties"
+if [ ! -f "$application_properties" ]; then
+    touch "$application_properties"
+	echo "spring.datasource.username=${google_sql_user.cloudsql_user.name}" >> /opt/application.properties
+	echo "spring.datasource.password=${random_password.db_password.result}" >> /opt/application.properties
+	echo "spring.datasource.url=jdbc:postgresql://${google_sql_database_instance.cloudsql_instance.ip_address.0.ip_address}:5432/${google_sql_database.cloudsql_database.name}" >> /opt/application.properties
+	echo "spring.datasource.driver-class-name=org.postgresql.Driver" >> /opt/application.properties
+	echo "server.port=8080" >> /opt/application.properties
+	echo "spring.jpa.generate-ddl=true" >> /opt/application.properties
+	echo "spring.jpa.hibernate.ddl-auto=create-drop" >> /opt/application.properties
+	echo "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.context.PropertyPlaceholderAutoConfiguration" >> /opt/application.properties
+	echo "spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect" >> /opt/application.properties
+	echo "spring.mvc.throw-exception-if-no-handler-found=true" >> /opt/application.properties
+fi
+sudo chown -R csye6225:csye6225 /opt/
+EOT
+  }
 }
 
 
@@ -167,7 +190,7 @@ resource "google_compute_instance" "vpc-instance-cloud" {
 #  purpose      = "PRIVATE_SERVICE_CONNECT"
 #  network      = google_compute_network.my_vpc.id
 #  address		= "10.3.0.5"
-  #prefix_length = 24 
+#prefix_length = 24 
 #}
 
 # [END compute_internal_ip_private_access]
@@ -188,23 +211,25 @@ resource "google_compute_global_address" "private_ip_alloc" {
   address_type  = "INTERNAL"
   prefix_length = 24
   network       = google_compute_network.my_vpc.id
-  address		= "10.0.4.0"
+  address       = "10.0.4.0"
+
 }
 
 resource "google_service_networking_connection" "default2" {
   network                 = google_compute_network.my_vpc.id
   service                 = "servicenetworking.googleapis.com"
-  reserved_peering_ranges = [google_compute_global_address.private_ip_alloc.name] 
+  reserved_peering_ranges = [google_compute_global_address.private_ip_alloc.name]
   #reserved_peering_ranges = ["10.0.5.0/24"]
 }
 
 # CloudSQL instance
 resource "google_sql_database_instance" "cloudsql_instance" {
-  name             = "my-cloudsql-instance"
-  region           = var.region
-  database_version = "POSTGRES_9_6"
+  name                = "my-cloudsql-instance"
+  region              = var.region
+  database_version    = "POSTGRES_9_6"
   deletion_protection = false
-	depends_on = [google_service_networking_connection.default2]
+  depends_on          = [google_service_networking_connection.default2]
+
   settings {
 	backup_configuration{
 		enabled = true
@@ -215,12 +240,12 @@ resource "google_sql_database_instance" "cloudsql_instance" {
 		private_network = google_compute_network.my_vpc.id
 		enable_private_path_for_google_cloud_services = true
     }
-	disk_type           = "pd-ssd"
-	disk_size           = 100
-	availability_type = "REGIONAL"
-    tier = "db-f1-micro"  # You can adjust the tier according to your needs
+    disk_type         = "pd-ssd"
+    disk_size         = 100
+    availability_type = "REGIONAL"
+    tier              = "db-f1-micro" # You can adjust the tier according to your needs
   }
-  
+
 }
 
 # CloudSQL database
@@ -237,7 +262,13 @@ resource "random_password" "db_password" {
 
 # CloudSQL database user
 resource "google_sql_user" "cloudsql_user" {
-  name     = "user"
+  name     = random_string.db_user.result
   instance = google_sql_database_instance.cloudsql_instance.name
-  password = "password"		#random_password.db_password.result
+  password = random_password.db_password.result
+}
+
+resource "random_string" "db_user" {
+  length           = 16
+  special          = false
+  numeric			= false
 }
