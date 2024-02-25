@@ -211,6 +211,7 @@ resource "google_compute_global_address" "private_ip_alloc" {
   prefix_length = 24
   network       = google_compute_network.my_vpc.id
   address       = "10.0.4.0"
+
 }
 
 resource "google_service_networking_connection" "default2" {
@@ -227,6 +228,7 @@ resource "google_sql_database_instance" "cloudsql_instance" {
   database_version    = "POSTGRES_9_6"
   deletion_protection = false
   depends_on          = [google_service_networking_connection.default2]
+
   settings {
 	backup_configuration{
 		enabled = true
@@ -262,4 +264,5 @@ resource "google_sql_user" "cloudsql_user" {
   name     = "user"
   instance = google_sql_database_instance.cloudsql_instance.name
   password = "password" #random_password.db_password.result
+
 }
