@@ -226,7 +226,7 @@ resource "google_sql_database_instance" "cloudsql_instance" {
 
 # CloudSQL database
 resource "google_sql_database" "cloudsql_database" {
-  name     = "webapp"
+  name     = "test_db"
   instance = google_sql_database_instance.cloudsql_instance.name
 }
 
