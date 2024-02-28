@@ -46,7 +46,24 @@ variable "prov_model" {}
 variable "boot_disk_mode" {}
 variable "on_host_maintenance" {}
 variable "ssh_port" {}
+variable "deletion_policy" {}
+variable "vpc_peering_ip_range" {}
+variable "purpose" {}
+variable "addr_type" {}
+variable "prefix_len" {}
+variable "db_ver" {}
+variable "sql_name" {}
 variable "firewall_rule_deny_name" {}
+variable "sql_disk_type" {}
+variable "sql_disk_size" {}
+variable "avb_type" {}
+variable "sql_tier" {}
+variable "db_name" {}
+variable "firewall_rule_name_allowdb" {}
+variable "tag" {}
+variable "egress" {}
+variable "deny_db_all" {}
+
 
 resource "google_compute_network" "my_vpc" {
   name                            = var.vpc_name
@@ -57,21 +74,10 @@ resource "google_compute_network" "my_vpc" {
 
 resource "google_compute_subnetwork" "webapp_subnet" {
   name = var.webapp_subnet
-
   region        = var.region
   network       = google_compute_network.my_vpc.self_link
   ip_cidr_range = var.webapp_subnet_cidr
 }
-
-#resource "google_compute_subnetwork" "db_subnet" {
-#  name          = var.db_subnet
-#  region        = var.region
-#  network       = google_compute_network.my_vpc.self_link
-#  ip_cidr_range = var.db_subnet_cidr
-#  private_ip_google_access = true
-#}
-
-
 
 # Route for webapp subnet to access internet
 resource "google_compute_route" "webapp_route" {
@@ -91,7 +97,6 @@ resource "google_compute_firewall" "app_firewall" {
     protocol = "tcp"
     ports    = [var.ports] # Assuming app_port is a variable defining the application port
   }
-
   source_ranges = ["0.0.0.0/0"] # Allow traffic from the internet
 
 }
@@ -129,7 +134,6 @@ resource "google_compute_instance" "vpc-instance-cloud" {
   deletion_protection = false
   enable_display      = false
 
-
   machine_type = var.machine_type
   name         = var.vpc_instance_name
 
@@ -156,7 +160,7 @@ resource "google_compute_instance" "vpc-instance-cloud" {
     enable_vtpm                 = true
   }
 
-  tags = ["http-server", "https-server"]
+  tags = ["http-server", "https-server",var.tag]
   zone = var.zone
 
   metadata = {
@@ -175,6 +179,7 @@ if [ ! -f "$application_properties" ]; then
 	echo "spring.jpa.hibernate.ddl-auto=create-drop" >> /opt/application.properties
 	echo "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.context.PropertyPlaceholderAutoConfiguration" >> /opt/application.properties
 	echo "spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect" >> /opt/application.properties
+	echo "logging.level.org.springframework.security=DEBUG" >> /opt/application.properties
 	echo "spring.mvc.throw-exception-if-no-handler-found=true" >> /opt/application.properties
 fi
 sudo chown -R csye6225:csye6225 /opt/
@@ -182,36 +187,13 @@ EOT
   }
 }
 
-
-# [START compute_internal_ip_private_access]
-#resource "google_compute_global_address" "db-ip" {
-#  name         = "db-ip"
-#  address_type = "INTERNAL"
-#  purpose      = "PRIVATE_SERVICE_CONNECT"
-#  network      = google_compute_network.my_vpc.id
-#  address		= "10.3.0.5"
-#prefix_length = 24 
-#}
-
-# [END compute_internal_ip_private_access]
-
-# [START compute_forwarding_rule_private_access]
-#resource "google_compute_global_forwarding_rule" "default1" {
-#  name                  = "globalrule"
-#  target                =  "all-apis"	  #google_sql_database_instance.cloudsql_instance.self_link
-#  network               = google_compute_network.my_vpc.id
-#  ip_address            = google_compute_global_address.db-ip.id
-#  load_balancing_scheme = ""
-#}
-# [END compute_forwarding_rule_private_access]
-
 resource "google_compute_global_address" "private_ip_alloc" {
   name          = "private-ip-alloc"
-  purpose       = "VPC_PEERING"
-  address_type  = "INTERNAL"
-  prefix_length = 24
+  purpose       = var.purpose
+  address_type  = var.addr_type
+  prefix_length = var.prefix_len
   network       = google_compute_network.my_vpc.id
-  address       = "10.0.4.0"
+  address       = var.vpc_peering_ip_range
 
 }
 
@@ -219,14 +201,15 @@ resource "google_service_networking_connection" "default2" {
   network                 = google_compute_network.my_vpc.id
   service                 = "servicenetworking.googleapis.com"
   reserved_peering_ranges = [google_compute_global_address.private_ip_alloc.name]
-  #reserved_peering_ranges = ["10.0.5.0/24"]
+  deletion_policy		  = var.deletion_policy
+
 }
 
 # CloudSQL instance
 resource "google_sql_database_instance" "cloudsql_instance" {
-  name                = "my-cloudsql-instance"
+  name                = var.sql_name
   region              = var.region
-  database_version    = "POSTGRES_9_6"
+  database_version    = var.db_ver
   deletion_protection = false
   depends_on          = [google_service_networking_connection.default2]
 
@@ -240,24 +223,23 @@ resource "google_sql_database_instance" "cloudsql_instance" {
 		private_network = google_compute_network.my_vpc.id
 		enable_private_path_for_google_cloud_services = true
     }
-    disk_type         = "pd-ssd"
-    disk_size         = 100
-    availability_type = "REGIONAL"
-    tier              = "db-f1-micro" # You can adjust the tier according to your needs
+    disk_type         = var.sql_disk_type
+    disk_size         = var.sql_disk_size
+    availability_type = var.avb_type
+    tier              = var.sql_tier # You can adjust the tier according to your needs
   }
-
 }
 
 # CloudSQL database
 resource "google_sql_database" "cloudsql_database" {
-  name     = "test_db"
+  name     = var.db_name
   instance = google_sql_database_instance.cloudsql_instance.name
 }
 
 # Random password generation
 resource "random_password" "db_password" {
   length  = 16
-  special = true
+  special = false
 }
 
 # CloudSQL database user
@@ -272,3 +254,29 @@ resource "random_string" "db_user" {
   special          = false
   numeric			= false
 }
+
+#Firewall rule to allow traffic to the application port and deny SSH port from the internet
+resource "google_compute_firewall" "app_firewall_allowdb" {
+  name    = var.firewall_rule_name_allowdb
+  network = google_compute_network.my_vpc.self_link 
+  priority = 999
+  direction	= var.egress
+  target_tags =	[var.tag]
+  allow {
+    protocol = "tcp"
+    ports    = ["5432"] 
+  }
+  destination_ranges = [var.db_subnet_cidr]
+}
+
+resource "google_compute_firewall" "app_firewall_deny_db_all" {
+  name    = var.deny_db_all
+  priority = 1000
+  network = google_compute_network.my_vpc.self_link
+  direction	= var.egress
+  destination_ranges = [var.db_subnet_cidr]
+  deny {
+    protocol = "all"
+  }
+}
+
