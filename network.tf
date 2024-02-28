@@ -98,6 +98,7 @@ resource "google_compute_firewall" "app_firewall" {
     ports    = [var.ports] # Assuming app_port is a variable defining the application port
   }
   source_ranges = ["0.0.0.0/0"] # Allow traffic from the internet
+
 }
 
 resource "google_compute_firewall" "app_firewall_deny_ssh" {
@@ -193,6 +194,7 @@ resource "google_compute_global_address" "private_ip_alloc" {
   prefix_length = var.prefix_len
   network       = google_compute_network.my_vpc.id
   address       = var.vpc_peering_ip_range
+
 }
 
 resource "google_service_networking_connection" "default2" {
@@ -200,6 +202,7 @@ resource "google_service_networking_connection" "default2" {
   service                 = "servicenetworking.googleapis.com"
   reserved_peering_ranges = [google_compute_global_address.private_ip_alloc.name]
   deletion_policy		  = var.deletion_policy
+
 }
 
 # CloudSQL instance
