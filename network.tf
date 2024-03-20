@@ -25,6 +25,14 @@ variable "webapp_subnet_cidr" {
 variable "db_subnet_cidr" {
   description = "CIDR range for the db subnet"
 }
+variable "domain_name" {
+  description = "The domain name to be used"
+}
+
+variable "dns_zone_name" {
+  description = "The domain zone name to be used"
+}
+
 
 variable "project_id" {}
 variable "region" {}
@@ -100,7 +108,22 @@ resource "google_compute_firewall" "app_firewall" {
   source_ranges = ["0.0.0.0/0"] # Allow traffic from the internet
 
 }
+/*
+resource "google_compute_firewall" "app_firewall_allow_ssh" {
+  name    = "firewall-rule-allow-ssh"
+  network = google_compute_network.my_vpc.self_link
 
+  source_ranges = ["0.0.0.0/0"] # Allow traffic from the internet
+
+  # Exclude SSH (port 22) from allowed ports
+  allow {
+    protocol = "tcp"
+    ports    = [var.ssh_port]
+  }
+}
+*/
+
+#
 resource "google_compute_firewall" "app_firewall_deny_ssh" {
   name    = var.firewall_rule_deny_name
   network = google_compute_network.my_vpc.self_link
@@ -113,6 +136,7 @@ resource "google_compute_firewall" "app_firewall_deny_ssh" {
     ports    = [var.ssh_port]
   }
 }
+#
 
 
 
@@ -120,7 +144,7 @@ resource "google_compute_instance" "vpc-instance-cloud" {
   boot_disk {
     auto_delete = true
     device_name = var.vpc_instance_name
-
+	#depends_on          = [google_service_account.service_account]
     initialize_params {
       image = var.custom_image
       size  = var.boot_disk_size
@@ -185,7 +209,26 @@ fi
 sudo chown -R csye6225:csye6225 /opt/
 EOT
   }
+  
+  service_account {
+    # Google recommends custom service accounts that have cloud-platform scope and permissions granted via IAM Roles.
+    email  = google_service_account.service_account.email
+    scopes = ["cloud-platform","monitoring-write","logging-write","https://www.googleapis.com/auth/logging.admin"]
+  }
+  allow_stopping_for_update = true
 }
+
+# end of compute engine
+
+resource "google_dns_record_set" "app_dns" {
+  name    = var.domain_name
+  type    = "A"
+  ttl     = 30 # Adjust TTL as needed
+  rrdatas = [google_compute_instance.vpc-instance-cloud.network_interface[0].access_config[0].nat_ip]
+  managed_zone = var.dns_zone_name
+}
+
+
 
 resource "google_compute_global_address" "private_ip_alloc" {
   name          = "private-ip-alloc"
@@ -280,3 +323,27 @@ resource "google_compute_firewall" "app_firewall_deny_db_all" {
   }
 }
 
+
+resource "google_service_account" "service_account" {
+  account_id   = "service-account-id"
+  display_name = "Service Account"
+  create_ignore_already_exists = true
+}
+
+resource "google_project_iam_binding" "logging_admin_binding" {
+  project = var.project_id
+  role    = "roles/logging.admin"
+  
+  members = [
+    "serviceAccount:${google_service_account.service_account.email}"
+  ]
+}
+
+resource "google_project_iam_binding" "monitoring_metric_writer_binding" {
+  project = var.project_id
+  role    = "roles/monitoring.metricWriter"
+  
+  members = [
+    "serviceAccount:${google_service_account.service_account.email}"
+  ]
+}
