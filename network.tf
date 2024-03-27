@@ -71,6 +71,16 @@ variable "firewall_rule_name_allowdb" {}
 variable "tag" {}
 variable "egress" {}
 variable "deny_db_all" {}
+variable "aws_region" {}
+variable "aws_access" {}
+variable "aws_secret" {}
+variable "connector_ip_range" {}
+variable "connector_name" {}
+variable "function_runtime" {}
+variable "function_entry" {}
+variable "bucket_name" {}
+variable "bucket_object" {}
+variable "retention_in_secs" {}
 
 
 resource "google_compute_network" "my_vpc" {
@@ -120,10 +130,11 @@ resource "google_compute_firewall" "app_firewall_allow_ssh" {
     protocol = "tcp"
     ports    = [var.ssh_port]
   }
+    disabled = true
 }
 
 
-#
+
 resource "google_compute_firewall" "app_firewall_deny_ssh" {
   name    = var.firewall_rule_deny_name
   network = google_compute_network.my_vpc.self_link
@@ -135,10 +146,9 @@ resource "google_compute_firewall" "app_firewall_deny_ssh" {
     protocol = "tcp"
     ports    = [var.ssh_port]
   }
-    disabled = true
+    disabled = false
 
 }
-#
 
 
 resource "google_compute_instance" "vpc-instance-cloud" {
@@ -364,7 +374,7 @@ resource "google_project_iam_binding" "publisher_binding" {
 
 resource "google_pubsub_topic" "verify_email_topic" {
   name = "verify_email"
-   message_retention_duration = "604800s"
+   message_retention_duration = var.retention_in_secs
 }
 
 resource "google_pubsub_subscription" "verify_email_subscription" {
@@ -377,10 +387,10 @@ depends_on = [google_cloudfunctions_function.verify_email_function]
 
 resource "google_cloudfunctions_function" "verify_email_function" {
   name        = "verify-email-function"
-  runtime     = "python39"
-  entry_point = "hello_http"
-  source_archive_bucket = "webapp-prjt"
-  source_archive_object = "code.zip"
+  runtime     = var.function_runtime
+  entry_point = var.function_entry
+  source_archive_bucket = var.bucket_name
+  source_archive_object = var.bucket_object
   event_trigger {
     event_type = "google.pubsub.topic.publish"
     resource   = google_pubsub_topic.verify_email_topic.name
@@ -393,9 +403,13 @@ resource "google_cloudfunctions_function" "verify_email_function" {
     DB_USER       = google_sql_user.cloudsql_user.name
 	DB_PASS		= random_password.db_password.result
 	DB_NAME		= google_sql_database.cloudsql_database.name
-	
+	AWS_REGION	= var.aws_region
+	AWS_ACCESS_KEY = var.aws_access
+	AWS_SECRET	= var.aws_secret
   }
 }
+
+
 resource "google_cloudfunctions_function_iam_member" "invoker" {
   project        = google_cloudfunctions_function.verify_email_function.project
   region         = google_cloudfunctions_function.verify_email_function.region
@@ -406,7 +420,7 @@ resource "google_cloudfunctions_function_iam_member" "invoker" {
 }
 
 resource "google_vpc_access_connector" "connector" {
-  name          = "webapp-connect"
-  ip_cidr_range = "10.0.3.0/28"
+  name          = var.connector_name
+  ip_cidr_range = var.connector_ip_range
   network       = google_compute_network.my_vpc.self_link
 }
