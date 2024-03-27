@@ -71,6 +71,16 @@ variable "firewall_rule_name_allowdb" {}
 variable "tag" {}
 variable "egress" {}
 variable "deny_db_all" {}
+variable "aws_region" {}
+variable "aws_access" {}
+variable "aws_secret" {}
+variable "connector_ip_range" {}
+variable "connector_name" {}
+variable "function_runtime" {}
+variable "function_entry" {}
+variable "bucket_name" {}
+variable "bucket_object" {}
+variable "retention_in_secs" {}
 
 
 resource "google_compute_network" "my_vpc" {
@@ -108,7 +118,7 @@ resource "google_compute_firewall" "app_firewall" {
   source_ranges = ["0.0.0.0/0"] # Allow traffic from the internet
 
 }
-/*
+
 resource "google_compute_firewall" "app_firewall_allow_ssh" {
   name    = "firewall-rule-allow-ssh"
   network = google_compute_network.my_vpc.self_link
@@ -120,10 +130,11 @@ resource "google_compute_firewall" "app_firewall_allow_ssh" {
     protocol = "tcp"
     ports    = [var.ssh_port]
   }
+    disabled = true
 }
-*/
 
-#
+
+
 resource "google_compute_firewall" "app_firewall_deny_ssh" {
   name    = var.firewall_rule_deny_name
   network = google_compute_network.my_vpc.self_link
@@ -135,9 +146,9 @@ resource "google_compute_firewall" "app_firewall_deny_ssh" {
     protocol = "tcp"
     ports    = [var.ssh_port]
   }
-}
-#
+    disabled = false
 
+}
 
 
 resource "google_compute_instance" "vpc-instance-cloud" {
@@ -193,7 +204,7 @@ resource "google_compute_instance" "vpc-instance-cloud" {
 set -e
 application_properties="/opt/application.properties"
 if [ ! -f "$application_properties" ]; then
-    touch "$application_properties"
+  touch "$application_properties"
 	echo "spring.datasource.username=${google_sql_user.cloudsql_user.name}" >> /opt/application.properties
 	echo "spring.datasource.password=${random_password.db_password.result}" >> /opt/application.properties
 	echo "spring.datasource.url=jdbc:postgresql://${google_sql_database_instance.cloudsql_instance.ip_address.0.ip_address}:5432/${google_sql_database.cloudsql_database.name}" >> /opt/application.properties
@@ -205,10 +216,12 @@ if [ ! -f "$application_properties" ]; then
 	echo "spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect" >> /opt/application.properties
 	echo "logging.level.org.springframework.security=DEBUG" >> /opt/application.properties
 	echo "spring.mvc.throw-exception-if-no-handler-found=true" >> /opt/application.properties
+	echo "pubsub.topic=verify_email" >> /opt/application.properties
+	echo "gcp.prjt=cloud-nw-dev" >> /opt/application.properties
 fi
 sudo chown -R csye6225:csye6225 /opt/
 EOT
-  }
+}
   
   service_account {
     # Google recommends custom service accounts that have cloud-platform scope and permissions granted via IAM Roles.
@@ -318,6 +331,7 @@ resource "google_compute_firewall" "app_firewall_deny_db_all" {
   network = google_compute_network.my_vpc.self_link
   direction	= var.egress
   destination_ranges = [var.db_subnet_cidr]
+  disabled = true
   deny {
     protocol = "all"
   }
@@ -346,4 +360,67 @@ resource "google_project_iam_binding" "monitoring_metric_writer_binding" {
   members = [
     "serviceAccount:${google_service_account.service_account.email}"
   ]
+}
+
+resource "google_project_iam_binding" "publisher_binding" {
+  project = var.project_id
+  role    = "roles/pubsub.publisher"
+  
+  members = [
+    "serviceAccount:${google_service_account.service_account.email}"
+  ]
+}
+
+
+resource "google_pubsub_topic" "verify_email_topic" {
+  name = "verify_email"
+   message_retention_duration = var.retention_in_secs
+}
+
+resource "google_pubsub_subscription" "verify_email_subscription" {
+depends_on = [google_cloudfunctions_function.verify_email_function]
+  name   = "verify_email_subscription"
+  topic  = google_pubsub_topic.verify_email_topic.name
+  ack_deadline_seconds = 10 // Adjust as needed
+
+}
+
+resource "google_cloudfunctions_function" "verify_email_function" {
+  name        = "verify-email-function"
+  runtime     = var.function_runtime
+  entry_point = var.function_entry
+  source_archive_bucket = var.bucket_name
+  source_archive_object = var.bucket_object
+  event_trigger {
+    event_type = "google.pubsub.topic.publish"
+    resource   = google_pubsub_topic.verify_email_topic.name
+  }
+  ingress_settings	= "ALLOW_ALL"
+	vpc_connector = google_vpc_access_connector.connector.id
+	vpc_connector_egress_settings = "PRIVATE_RANGES_ONLY"
+  environment_variables = {
+    INSTANCE_CONNECTION_NAME = google_sql_database_instance.cloudsql_instance.connection_name
+    DB_USER       = google_sql_user.cloudsql_user.name
+	DB_PASS		= random_password.db_password.result
+	DB_NAME		= google_sql_database.cloudsql_database.name
+	AWS_REGION	= var.aws_region
+	AWS_ACCESS_KEY = var.aws_access
+	AWS_SECRET	= var.aws_secret
+  }
+}
+
+
+resource "google_cloudfunctions_function_iam_member" "invoker" {
+  project        = google_cloudfunctions_function.verify_email_function.project
+  region         = google_cloudfunctions_function.verify_email_function.region
+  cloud_function = google_cloudfunctions_function.verify_email_function.name
+
+  role   = "roles/cloudfunctions.invoker"
+  member = "allUsers"
+}
+
+resource "google_vpc_access_connector" "connector" {
+  name          = var.connector_name
+  ip_cidr_range = var.connector_ip_range
+  network       = google_compute_network.my_vpc.self_link
 }
