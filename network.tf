@@ -141,6 +141,7 @@ resource "google_project_iam_binding" "iam_admin_provider_service_account_bindin
 }
 */
 
+
 resource "google_project_iam_binding" "token_creator_provider_service_account_binding" {
   project = var.project_id
   role    = "roles/iam.serviceAccountTokenCreator"  # Replace [IAM_ROLE] with the desired IAM role, e.g., roles/storage.admin
