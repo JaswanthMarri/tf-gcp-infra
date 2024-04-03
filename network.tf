@@ -130,7 +130,7 @@ resource "google_project_iam_binding" "nw_admin_provider_service_account_binding
     "serviceAccount:${data.google_service_account.provider_account.email}"
   ]
 }
-
+/*
 resource "google_project_iam_binding" "iam_admin_provider_service_account_binding" {
   project = var.project_id
   role    = "roles/resourcemanager.projectIamAdmin"  # Replace [IAM_ROLE] with the desired IAM role, e.g., roles/storage.admin
@@ -139,6 +139,8 @@ resource "google_project_iam_binding" "iam_admin_provider_service_account_bindin
     "serviceAccount:${data.google_service_account.provider_account.email}"
   ]
 }
+*/
+
 
 resource "google_project_iam_binding" "token_creator_provider_service_account_binding" {
   project = var.project_id
@@ -486,7 +488,7 @@ if [ ! -f "$application_properties" ]; then
 	echo "spring.datasource.driver-class-name=org.postgresql.Driver" >> /opt/application.properties
 	echo "server.port=8080" >> /opt/application.properties
 	echo "spring.jpa.generate-ddl=true" >> /opt/application.properties
-	echo "spring.jpa.hibernate.ddl-auto=create" >> /opt/application.properties
+	echo "spring.jpa.hibernate.ddl-auto=update" >> /opt/application.properties
 	echo "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.context.PropertyPlaceholderAutoConfiguration" >> /opt/application.properties
 	echo "spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect" >> /opt/application.properties
 	echo "logging.level.org.springframework.security=DEBUG" >> /opt/application.properties
@@ -512,7 +514,7 @@ EOT
 # health check 
 resource "google_compute_health_check" "autohealing" {
   name                = "autohealing-health-check"
-  check_interval_sec  = 180
+  check_interval_sec  = 60
   timeout_sec         = 5
   healthy_threshold   = 1
   unhealthy_threshold = 2
