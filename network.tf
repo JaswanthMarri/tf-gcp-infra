@@ -4,6 +4,12 @@ provider "google" {
   region      = var.region
 }
 
+provider "google-beta" {
+  credentials = file(var.creds)
+  project     = var.project_id
+  region      = var.region
+}
+
 #############################################
 data "google_service_account" "provider_account" {
   account_id = "1027887585503-compute@developer.gserviceaccount.com"  # Replace with your service account ID
@@ -98,9 +104,7 @@ resource "google_project_iam_binding" "provider_service_account_binding" {
   project = var.project_id
   role    = "roles/cloudfunctions.admin"  # Replace [IAM_ROLE] with the desired IAM role, e.g., roles/storage.admin
 
-  members = [
-    "serviceAccount:${data.google_service_account.provider_account.email}"
-  ]
+  members = [    "serviceAccount:${data.google_service_account.provider_account.email}"]
 }
 
 resource "google_project_iam_binding" "sql_admin_provider_service_account_binding" {
@@ -150,6 +154,15 @@ resource "google_project_iam_binding" "token_creator_provider_service_account_bi
     "serviceAccount:${data.google_service_account.provider_account.email}"
   ]
 }
+
+/*
+resource "google_project_iam_binding" "secret_provider_service_account_binding" {
+  project = var.project_id
+  role    = "roles/secretmanager.secretAccessor"
+  members = ["serviceAccount:${data.google_service_account.provider_account.email}","serviceAccount:github-actions@cloud-nw-dev.iam.gserviceaccount.com"]
+  
+}
+*/
 
 ###########################################################################
 
@@ -274,6 +287,81 @@ resource "google_service_networking_connection" "default2" {
 
 ###########################################################################
 
+resource "random_string" "random-key-ring" {
+  length           = 16
+  special          = false
+
+}
+
+# Create a Key Ring
+resource "google_kms_key_ring" "example1" {
+  name     = "webapp-key-ring-${random_string.random-key-ring.result}"
+  location = var.region
+}
+
+# Create Customer-Managed Encryption Keys for CloudSQL Instances
+resource "google_kms_crypto_key" "cloudsql_key" {
+  name            = "cloudsql-cmek-key"
+  key_ring        = google_kms_key_ring.example1.id
+  rotation_period = "2592000s"
+}
+
+
+# Create Customer-Managed Encryption Keys for Virtual Machines
+resource "google_kms_crypto_key" "vm_key" {
+  name            = "vm-cmek-key"
+  key_ring        = google_kms_key_ring.example1.id
+  rotation_period = "2592000s"
+}
+
+# Create Customer-Managed Encryption Keys for Cloud Storage Buckets
+resource "google_kms_crypto_key" "storage_key" {
+  name            = "storage-cmek-key"
+  key_ring        = google_kms_key_ring.example1.id
+  rotation_period = "2592000s"
+}
+
+###################################################
+
+resource "google_project_service_identity" "gcp_sa_cloud_sql" {
+  provider = google-beta
+  service  = "sqladmin.googleapis.com"
+}
+
+/*
+resource "google_project_iam_binding" "crypto_key" {
+  #provider      = google
+  #crypto_key_id = google_kms_crypto_key.cloudsql_key.id
+  project = var.project_id
+  role          = "roles/cloudkms.admin"
+
+  #members = ["serviceAccount:${data.google_service_account.provider_account.email}"]
+  members = ["serviceAccount:${google_project_service_identity.gcp_sa_cloud_sql.email}"]
+}
+*/
+
+resource "google_kms_crypto_key_iam_binding" "de_crypto_key" {
+  provider      = google
+  crypto_key_id = google_kms_crypto_key.cloudsql_key.id
+  role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+
+  #members = ["serviceAccount:${data.google_service_account.provider_account.email}"]
+  members = ["serviceAccount:${google_project_service_identity.gcp_sa_cloud_sql.email}"]
+}
+
+
+data "google_kms_key_ring" "my_key_ring" {
+  name     = "webapp"
+  location = "us-east1"
+}
+
+/*
+data "google_kms_crypto_key" "my_crypto_key" {
+  name     = "cloudsql-key"
+  key_ring = data.google_kms_key_ring.my_key_ring.id
+}
+*/
+
 # CloudSQL instance
 resource "google_sql_database_instance" "cloudsql_instance" {
   name                = var.sql_name
@@ -297,6 +385,7 @@ resource "google_sql_database_instance" "cloudsql_instance" {
     availability_type = var.avb_type
     tier              = var.sql_tier # You can adjust the tier according to your needs
   }
+  encryption_key_name = google_kms_crypto_key.cloudsql_key.id
 }
 
 ###########################################################################
@@ -382,6 +471,8 @@ depends_on = [google_cloudfunctions_function.verify_email_function]
 ###########################################################################
 
 resource "google_cloudfunctions_function" "verify_email_function" {
+
+  depends_on  = [google_storage_bucket_object.default,google_project_iam_binding.provider_service_account_binding]
   service_account_email  = data.google_service_account.provider_account.email
   name        = "verify-email-function"
   runtime     = var.function_runtime
@@ -427,10 +518,54 @@ resource "google_vpc_access_connector" "connector" {
   network       = google_compute_network.my_vpc.self_link
 }
 
+###########################################################################
+#Bucket config
+
+data "google_storage_project_service_account" "gcs_account" {
+}
+
+
+resource "google_kms_crypto_key_iam_binding" "de_crypto_bucket_key" {
+  provider      = google
+  crypto_key_id = google_kms_crypto_key.storage_key.id
+  #project = var.project_id
+  role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+  members = ["serviceAccount:${data.google_storage_project_service_account.gcs_account.email_address}"]
+}
+
+resource "google_storage_bucket" "example_bucket" {
+  name     = var.bucket_name
+  location = var.region
+  depends_on  = [google_kms_crypto_key_iam_binding.de_crypto_bucket_key]
+
+  encryption {
+    default_kms_key_name = google_kms_crypto_key.storage_key.id
+  }
+}
+
+# Upload a text file as an object
+# to the storage bucket
+
+resource "google_storage_bucket_object" "default" {
+ name         = var.bucket_object
+ source       = "./${var.bucket_object}"
+ bucket       = google_storage_bucket.example_bucket.id
+}
 
 ####################################################################
-# intance template
 
+resource "google_kms_crypto_key_iam_binding" "de_crypto_vm_key" {
+  provider      = google
+  crypto_key_id = google_kms_crypto_key.vm_key.id
+  #project = var.project_id
+  role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+
+  members = ["serviceAccount:service-1027887585503@compute-system.iam.gserviceaccount.com"]
+}
+
+####################################################################
+
+# intance template
 resource "google_compute_region_instance_template" "vpc-instance-cloud" {
 
   disk {
@@ -442,6 +577,10 @@ resource "google_compute_region_instance_template" "vpc-instance-cloud" {
 	disk_name		= var.vpc_instance_name
     #resource_policies = [google_compute_resource_policy.daily_backup.id]
     mode = var.boot_disk_mode
+	
+	disk_encryption_key{
+		kms_key_self_link = google_kms_crypto_key.vm_key.id
+	}
   }
 
   can_ip_forward      = true
@@ -507,6 +646,7 @@ EOT
     scopes = ["cloud-platform","monitoring-write","logging-write","https://www.googleapis.com/auth/logging.admin"]
   }
   #allow_stopping_for_update = true
+  
 }
 
 
@@ -514,7 +654,7 @@ EOT
 # health check 
 resource "google_compute_health_check" "autohealing" {
   name                = "autohealing-health-check"
-  check_interval_sec  = 60
+  check_interval_sec  = 30
   timeout_sec         = 5
   healthy_threshold   = 1
   unhealthy_threshold = 2
@@ -743,9 +883,179 @@ resource "google_compute_backend_service" "default" {
     balancing_mode  = "UTILIZATION"
     capacity_scaler = 1.0
   }
+  cdn_policy {
+  cache_key_policy {
+      include_host = true
+      include_protocol = true
+      include_query_string = true
+	  }
+	}
   log_config{
   enable	= true
   sample_rate	= 1
   }
 }
 
+##################################################################################
+
+
+resource "google_secret_manager_secret" "secret-basic-sql-username" {
+  secret_id = "sql-username"
+  replication {
+  user_managed {
+    replicas {
+	location = "us-east1"
+  }
+  }
+  }
+}
+
+resource "google_secret_manager_secret_version" "sql-username-secret" {
+  #depends_on = [google_project_iam_binding.secret_provider_service_account_binding]
+  secret = google_secret_manager_secret.secret-basic-sql-username.id
+  secret_data = google_sql_user.cloudsql_user.name
+
+}
+
+##################################################################################
+
+
+resource "google_secret_manager_secret" "secret-basic-sql-password" {
+  secret_id = "sql-password"
+  replication {
+  user_managed {
+    replicas {
+	location = "us-east1"
+  }
+  }
+  }
+}
+
+resource "google_secret_manager_secret_version" "sql-password-secret" {
+  #depends_on = [google_project_iam_binding.secret_provider_service_account_binding]
+  secret = google_secret_manager_secret.secret-basic-sql-password.id
+  secret_data = random_password.db_password.result
+
+}
+##################################################################################
+
+
+resource "google_secret_manager_secret" "secret-basic-sql-db-ip" {
+  secret_id = "sql-db-ip"
+  replication {
+  user_managed {
+    replicas {
+	location = "us-east1"
+  }
+  }
+  }
+}
+
+resource "google_secret_manager_secret_version" "db-ip-secret" {
+  #depends_on = [google_project_iam_binding.secret_provider_service_account_binding]
+  secret = google_secret_manager_secret.secret-basic-sql-db-ip.id
+  secret_data = google_sql_database_instance.cloudsql_instance.ip_address.0.ip_address
+
+}
+
+
+##################################################################################
+
+
+resource "google_secret_manager_secret" "secret-basic-sql-db-name" {
+  secret_id = "sql-db-name"
+  replication {
+  user_managed {
+    replicas {
+	location = "us-east1"
+  }
+  }
+  }
+}
+
+resource "google_secret_manager_secret_version" "db-name-secret" {
+  #depends_on = [google_project_iam_binding.secret_provider_service_account_binding]
+  secret = google_secret_manager_secret.secret-basic-sql-db-name.id
+  secret_data = google_sql_database.cloudsql_database.name
+
+}
+
+##################################################################################
+
+
+resource "google_secret_manager_secret" "secret-basic-vm-sa" {
+  secret_id = "vm-sa"
+  replication {
+  user_managed {
+    replicas {
+	location = "us-east1"
+  }
+  }
+  }
+}
+
+resource "google_secret_manager_secret_version" "sa-vm-secret" {
+  #depends_on = [google_project_iam_binding.secret_provider_service_account_binding]
+  secret = google_secret_manager_secret.secret-basic-vm-sa.id
+  secret_data = google_service_account.service_account.email
+
+}
+##################################################################################
+
+resource "google_secret_manager_secret" "secret-basic-vm-kms" {
+  secret_id = "vm-kms"
+  replication {
+  user_managed {
+    replicas {
+	location = "us-east1"
+  }
+  }
+  }
+}
+
+resource "google_secret_manager_secret_version" "kms-vm-secret" {
+  #depends_on = [google_project_iam_binding.secret_provider_service_account_binding]
+  secret = google_secret_manager_secret.secret-basic-vm-kms.id
+  secret_data = google_kms_crypto_key.vm_key.id
+
+}
+
+##################################################################################
+
+resource "google_secret_manager_secret" "secret-basic-vpc-name" {
+  secret_id = "vpc-name"
+  replication {
+  user_managed {
+    replicas {
+	location = "us-east1"
+  }
+  }
+  }
+}
+
+resource "google_secret_manager_secret_version" "vpc-name-secret" {
+  #depends_on = [google_project_iam_binding.secret_provider_service_account_binding]
+  secret = google_secret_manager_secret.secret-basic-vpc-name.id
+  secret_data = google_compute_network.my_vpc.self_link
+
+}
+
+##################################################################################
+
+
+resource "google_secret_manager_secret" "secret-basic-vpc-subnet-name" {
+  secret_id = "vpc-subnet-name"
+  replication {
+  user_managed {
+    replicas {
+	location = "us-east1"
+  }
+  }
+  }
+}
+
+resource "google_secret_manager_secret_version" "vpc-subnet-name-secret" {
+  #depends_on = [google_project_iam_binding.secret_provider_service_account_binding]
+  secret = google_secret_manager_secret.secret-basic-vpc-subnet-name.id
+  secret_data = google_compute_subnetwork.webapp_subnet.self_link
+}
